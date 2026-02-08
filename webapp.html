@@ -222,9 +222,10 @@ tr:hover { background:#f8fafc; }
 <div id="page-projects" class="page">
   <div id="projects-loading" class="loading"><div class="spinner"></div><p style="margin-top:12px">読み込み中...</p></div>
   <div class="table-box" id="projects-content" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <h3>案件一覧</h3>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="bulk-invoice-btn" class="btn btn-primary btn-sm" onclick="bulkGenerateInvoices()" disabled style="opacity:0.5">一括請求書生成 <span id="selected-count"></span></button>
         <select id="filter-status" onchange="filterProjects()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
           <option value="">すべて</option>
           <option value="商談見込み">商談見込み</option>
@@ -247,6 +248,7 @@ tr:hover { background:#f8fafc; }
     </div>
     <table id="projects-table">
       <thead><tr>
+        <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll()" title="全選択"></th>
         <th>案件ID</th><th>顧客名</th><th>案件名</th><th>進捗</th><th>ステータス</th><th>ヨミ</th><th>合計金額</th><th>操作</th>
       </tr></thead>
       <tbody></tbody>
@@ -583,6 +585,7 @@ function renderProjects(projects) {
     var yomiHtml = p.yomiRank ? '<span class="yomi yomi-' + p.yomiRank + '">' + p.yomiRank + ' (' + (YOMI_RATES[p.yomiRank] || 0) + '%)</span>' : '<span class="yomi yomi-">-</span>';
 
     tbody.innerHTML += '<tr>' +
+      '<td><input type="checkbox" class="project-cb" data-id="' + p.projectId + '" onchange="updateSelectedCount()"></td>' +
       '<td><a href="#" onclick="showProjectDetail(\'' + p.projectId + '\');return false;">' + p.projectId + '</a></td>' +
       '<td>' + p.customer + '</td>' +
       '<td>' + p.projectName + '</td>' +
@@ -672,8 +675,9 @@ function showProjectDetail(projectId) {
   // 明細
   html += '<div class="modal-section"><strong>明細:</strong><div id="modal-items">読み込み中...</div></div>';
 
-  // 右下に一括保存ボタン
-  html += '<div style="display:flex;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:2px solid #e5e7eb">';
+  // 削除・保存ボタン
+  html += '<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #e5e7eb">';
+  html += '<button class="btn btn-danger btn-sm" style="padding:8px 16px" onclick="deleteCurrentProject()">削除</button>';
   html += '<button class="btn btn-primary" style="padding:12px 32px;font-size:15px" onclick="saveAll()">保存</button>';
   html += '</div>';
 
@@ -839,6 +843,107 @@ function submitNewItem() {
       }
     })
     .addNewItem({ projectId: projectId, itemName: itemName, unitPrice: unitPrice, quantity: quantity });
+}
+
+// ========== 案件削除 ==========
+function deleteCurrentProject() {
+  if (!modalProjectId) return;
+  var p = allProjects.find(function(x) { return x.projectId === modalProjectId; });
+  if (!p) return;
+
+  var msg = '以下の案件を削除します:\n\n' +
+    '案件ID: ' + p.projectId + '\n' +
+    '顧客: ' + p.customer + '\n' +
+    '案件名: ' + p.projectName + '\n\n' +
+    '※ 関連する明細行もすべて削除されます。';
+  if (!confirm(msg)) return;
+  if (!confirm('本当に削除しますか？この操作は取り消せません。')) return;
+
+  showToast('削除中...', 'success');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        showToast(result.message, 'success');
+        closeModal();
+        loadProjects();
+        loadDashboard();
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('エラー: ' + err.message, 'error');
+    })
+    .deleteProject(modalProjectId);
+}
+
+// ========== チェックボックス管理 ==========
+function toggleSelectAll() {
+  var checked = document.getElementById('select-all').checked;
+  document.querySelectorAll('.project-cb').forEach(function(cb) { cb.checked = checked; });
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var cbs = document.querySelectorAll('.project-cb:checked');
+  var count = cbs.length;
+  var countEl = document.getElementById('selected-count');
+  var btn = document.getElementById('bulk-invoice-btn');
+  countEl.textContent = count > 0 ? '(' + count + '件)' : '';
+  btn.disabled = count === 0;
+  btn.style.opacity = count === 0 ? '0.5' : '1';
+
+  // 全選択チェックボックスの状態同期
+  var allCbs = document.querySelectorAll('.project-cb');
+  var selectAll = document.getElementById('select-all');
+  if (selectAll) selectAll.checked = allCbs.length > 0 && count === allCbs.length;
+}
+
+// ========== 一括請求書生成 ==========
+function bulkGenerateInvoices() {
+  var cbs = document.querySelectorAll('.project-cb:checked');
+  if (cbs.length === 0) { showToast('案件を選択してください', 'error'); return; }
+
+  var ids = [];
+  cbs.forEach(function(cb) { ids.push(cb.getAttribute('data-id')); });
+
+  if (!confirm('選択した ' + ids.length + ' 件の請求書を一括生成します。\n\n処理に時間がかかる場合があります。続行しますか？')) return;
+
+  var btn = document.getElementById('bulk-invoice-btn');
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  showToast('請求書一括生成中... (' + ids.length + '件)', 'success');
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.disabled = false;
+      btn.innerHTML = '一括請求書生成 <span id="selected-count"></span>';
+
+      if (result.success) {
+        var msg = result.completed + '件成功';
+        if (result.failed > 0) msg += ' / ' + result.failed + '件失敗';
+        showToast(msg, result.failed > 0 ? 'error' : 'success');
+
+        if (result.failed > 0) {
+          var details = result.errors.map(function(e) { return e.projectId + ': ' + e.reason; }).join('\n');
+          alert('失敗詳細:\n' + details);
+        }
+
+        // チェック解除してリロード
+        document.querySelectorAll('.project-cb').forEach(function(cb) { cb.checked = false; });
+        document.getElementById('select-all').checked = false;
+        updateSelectedCount();
+        loadProjects();
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = '一括請求書生成 <span id="selected-count"></span>';
+      showToast('エラー: ' + err.message, 'error');
+    })
+    .generateBulkInvoices(ids);
 }
 
 // ========== ユーティリティ ==========

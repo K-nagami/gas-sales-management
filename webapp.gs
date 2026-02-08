@@ -715,6 +715,145 @@ function generatePDFFromWeb(projectId, docType) {
 }
 
 // ============================================================================
+// 案件削除
+// ============================================================================
+
+/**
+ * 案件と関連明細を削除（ハードデリート）
+ * 明細シート → 案件マスタ の順で削除（行ずれ防止のため下から上へ）
+ */
+function deleteProject(projectId) {
+  try {
+    var ss = getSpreadsheet_();
+    var masterSheet = ss.getSheetByName('案件マスタ');
+    var itemSheet = ss.getSheetByName('明細');
+
+    // 案件マスタから対象行を特定
+    var masterData = masterSheet.getDataRange().getValues();
+    var masterRowIndex = -1;
+    for (var i = 1; i < masterData.length; i++) {
+      if (masterData[i][0] === projectId) {
+        masterRowIndex = i + 1; // シート行番号（1-based）
+        break;
+      }
+    }
+    if (masterRowIndex === -1) {
+      return { success: false, message: '案件が見つかりません: ' + projectId };
+    }
+
+    // 明細シートから該当行を検索（下から上へ削除するため行番号を収集）
+    var itemData = itemSheet.getDataRange().getValues();
+    var itemRowsToDelete = [];
+    for (var j = 1; j < itemData.length; j++) {
+      if (itemData[j][0] === projectId) {
+        itemRowsToDelete.push(j + 1); // シート行番号
+      }
+    }
+
+    // 明細を下から上へ削除（インデックスずれ防止）
+    for (var k = itemRowsToDelete.length - 1; k >= 0; k--) {
+      itemSheet.deleteRow(itemRowsToDelete[k]);
+    }
+
+    // 案件マスタの行を削除
+    masterSheet.deleteRow(masterRowIndex);
+
+    return {
+      success: true,
+      message: projectId + ' を削除しました（明細 ' + itemRowsToDelete.length + '行含む）',
+      deletedItemCount: itemRowsToDelete.length
+    };
+  } catch (error) {
+    return { success: false, message: '削除エラー: ' + error.message };
+  }
+}
+
+// ============================================================================
+// 一括請求書PDF生成
+// ============================================================================
+
+/**
+ * 複数案件の請求書を一括生成
+ * @param {string[]} projectIds - 案件IDの配列
+ * @returns {Object} 生成結果サマリー
+ */
+function generateBulkInvoices(projectIds) {
+  try {
+    var ss = getSpreadsheet_();
+    var masterSheet = ss.getSheetByName('案件マスタ');
+    var masterData = masterSheet.getDataRange().getValues();
+    var settings = getSettingsData();
+
+    var results = [];
+    var errors = [];
+
+    for (var p = 0; p < projectIds.length; p++) {
+      var pid = projectIds[p];
+      try {
+        // 案件マスタから対象行を検索
+        var rowIndex = -1;
+        for (var i = 1; i < masterData.length; i++) {
+          if (masterData[i][0] === pid) {
+            rowIndex = i;
+            break;
+          }
+        }
+        if (rowIndex === -1) {
+          errors.push({ projectId: pid, reason: '案件が見つかりません' });
+          continue;
+        }
+
+        var values = masterData[rowIndex];
+        var items = getItemsForProject(pid);
+        if (items.length === 0) {
+          errors.push({ projectId: pid, reason: '明細がありません' });
+          continue;
+        }
+
+        var rowData = {
+          sheet: masterSheet,
+          row: rowIndex + 1,
+          projectId: pid,
+          customerName: values[1],
+          values: values
+        };
+
+        var replacements = buildReplacements_(rowData, settings, items);
+        replacements['{{振込先情報}}'] = settings.bankName + ' ' + settings.branchName + '\n' +
+          settings.accountType + ' ' + settings.accountNumber + '\n口座名義: ' + settings.accountHolder;
+        replacements['{{入金予定日}}'] = values[6] ? formatDate_(values[6]) : '（未設定）';
+
+        var fileName = '請求書_' + pid + '_' + values[1] + '.pdf';
+        var pdfUrl = fillTemplateAndConvertToPDF(settings.invoiceTemplateId, replacements, items, fileName, settings.folderId);
+
+        // O列（15列目）に請求書URLを保存
+        masterSheet.getRange(rowIndex + 1, 15).setValue(pdfUrl);
+
+        results.push({ projectId: pid, url: pdfUrl });
+      } catch (innerError) {
+        errors.push({ projectId: pid, reason: innerError.message });
+      }
+
+      // API制限回避: 500ms待機
+      if (p < projectIds.length - 1) {
+        Utilities.sleep(500);
+      }
+    }
+
+    return {
+      success: true,
+      total: projectIds.length,
+      completed: results.length,
+      failed: errors.length,
+      results: results,
+      errors: errors
+    };
+  } catch (error) {
+    return { success: false, message: '一括生成エラー: ' + error.message, total: 0, completed: 0, failed: 0, results: [], errors: [] };
+  }
+}
+
+// ============================================================================
 // ユーティリティ
 // ============================================================================
 
