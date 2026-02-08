@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>売上管理ダッシュボード v2</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ========== リセット・基本 ========== */
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI','Hiragino Sans',sans-serif; background:#f0f2f5; color:#1a1a2e; font-size:14px; }
+a { color:#2563eb; text-decoration:none; }
+
+/* ========== ヘッダー ========== */
+.header { background:linear-gradient(135deg,#1e3a5f,#2563eb); color:#fff; padding:16px 24px; display:flex; justify-content:space-between; align-items:center; }
+.header h1 { font-size:20px; font-weight:600; }
+.header .refresh-btn { background:rgba(255,255,255,.2); border:none; color:#fff; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; }
+.header .refresh-btn:hover { background:rgba(255,255,255,.35); }
+
+/* ========== タブ ========== */
+.tabs { display:flex; background:#fff; border-bottom:2px solid #e5e7eb; padding:0 24px; }
+.tab { padding:12px 20px; cursor:pointer; font-weight:500; color:#6b7280; border-bottom:3px solid transparent; transition:.2s; }
+.tab:hover { color:#2563eb; }
+.tab.active { color:#2563eb; border-bottom-color:#2563eb; }
+
+/* ========== コンテンツ ========== */
+.content { max-width:1200px; margin:0 auto; padding:20px; }
+.page { display:none; }
+.page.active { display:block; }
+
+/* ========== カード ========== */
+.cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; margin-bottom:24px; }
+.card { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.card .label { font-size:12px; color:#6b7280; margin-bottom:4px; }
+.card .value { font-size:24px; font-weight:700; }
+.card .sub { font-size:11px; color:#9ca3af; margin-top:2px; }
+.card .value.green { color:#059669; }
+.card .value.blue { color:#2563eb; }
+.card .value.red { color:#dc2626; }
+.card .value.amber { color:#d97706; }
+.card .value.purple { color:#7c3aed; }
+
+/* ========== セクション ========== */
+.section-title { font-size:16px; font-weight:700; color:#1e3a5f; margin:24px 0 12px; padding-left:8px; border-left:4px solid #2563eb; }
+
+/* ========== グラフ ========== */
+.chart-box { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.chart-box h3 { font-size:15px; margin-bottom:12px; color:#374151; }
+
+/* ========== ファネル ========== */
+.funnel-container { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:24px; }
+.funnel-stage { display:flex; align-items:center; margin-bottom:4px; }
+.funnel-bar-wrap { flex:1; display:flex; justify-content:center; }
+.funnel-bar { height:40px; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:600; font-size:13px; transition:width .5s; min-width:80px; }
+.funnel-label { width:100px; font-size:12px; font-weight:600; color:#374151; text-align:right; padding-right:12px; }
+.funnel-meta { width:160px; font-size:12px; color:#6b7280; padding-left:12px; }
+.funnel-conv { display:inline-block; background:#e5e7eb; color:#374151; padding:1px 6px; border-radius:8px; font-size:10px; font-weight:600; margin-left:4px; }
+
+/* ========== 入金ギャップ ========== */
+.gap-section { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:24px; }
+
+/* ========== テーブル ========== */
+.table-box { background:#fff; border-radius:10px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:24px; overflow-x:auto; }
+.table-box h3 { font-size:15px; margin-bottom:12px; color:#374151; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { background:#f8fafc; padding:10px 12px; text-align:left; font-weight:600; color:#475569; border-bottom:2px solid #e2e8f0; white-space:nowrap; }
+td { padding:10px 12px; border-bottom:1px solid #f1f5f9; }
+tr:hover { background:#f8fafc; }
+
+/* ========== バッジ ========== */
+.badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+.badge-商談見込み { background:#e0f2fe; color:#0369a1; }
+.badge-提案中 { background:#dbeafe; color:#1d4ed8; }
+.badge-見積もり提示 { background:#c7d2fe; color:#4338ca; }
+.badge-受注 { background:#d1fae5; color:#047857; }
+.badge-請求済 { background:#fef3c7; color:#b45309; }
+.badge-入金済 { background:#d1fae5; color:#065f46; }
+.badge-失注 { background:#fee2e2; color:#b91c1c; }
+
+/* ========== ヨミランクバッジ ========== */
+.yomi { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700; }
+.yomi-A { background:#d1fae5; color:#065f46; }
+.yomi-B { background:#dbeafe; color:#1d4ed8; }
+.yomi-C { background:#fef3c7; color:#b45309; }
+.yomi-D { background:#e5e7eb; color:#374151; }
+.yomi- { background:#f3f4f6; color:#9ca3af; }
+
+/* ========== 進捗バー ========== */
+.progress-wrap { width:100%; background:#e5e7eb; border-radius:6px; height:8px; overflow:hidden; }
+.progress-bar { height:100%; border-radius:6px; transition:width .3s; }
+
+/* ========== フォーム ========== */
+.form-card { background:#fff; border-radius:10px; padding:24px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:24px; }
+.form-card h3 { font-size:16px; margin-bottom:16px; padding-bottom:8px; border-bottom:2px solid #e5e7eb; }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:4px; }
+.form-group input, .form-group select, .form-group textarea { width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:6px; font-size:14px; }
+.form-group input:focus, .form-group select:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+.form-group.full { grid-column:1/-1; }
+.btn { padding:10px 20px; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; transition:.2s; }
+.btn-primary { background:#2563eb; color:#fff; }
+.btn-primary:hover { background:#1d4ed8; }
+.btn-success { background:#059669; color:#fff; }
+.btn-success:hover { background:#047857; }
+.btn-danger { background:#dc2626; color:#fff; }
+.btn-outline { background:#fff; color:#374151; border:1px solid #d1d5db; }
+.btn-outline:hover { background:#f9fafb; }
+.btn-sm { padding:6px 12px; font-size:12px; }
+.btn-group { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+
+/* ========== アラート ========== */
+.alert-row { display:flex; align-items:center; padding:10px 16px; background:#fef2f2; border-left:4px solid #dc2626; border-radius:0 6px 6px 0; margin-bottom:8px; }
+.alert-row .days { background:#dc2626; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; margin-right:12px; flex-shrink:0; }
+
+/* ========== 期間セレクタ ========== */
+.period-btn { padding:6px 14px; border:1px solid #d1d5db; border-radius:6px; background:#fff; font-size:13px; font-weight:600; color:#6b7280; cursor:pointer; transition:.2s; }
+.period-btn:hover { border-color:#2563eb; color:#2563eb; }
+.period-btn.active { background:#2563eb; color:#fff; border-color:#2563eb; }
+
+/* ========== ローディング ========== */
+.loading { text-align:center; padding:60px; color:#6b7280; }
+.spinner { display:inline-block; width:32px; height:32px; border:3px solid #e5e7eb; border-top-color:#2563eb; border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ========== トースト ========== */
+.toast { position:fixed; top:20px; right:20px; padding:12px 20px; border-radius:8px; color:#fff; font-weight:600; z-index:1000; opacity:0; transition:.3s; }
+.toast.show { opacity:1; }
+.toast-success { background:#059669; }
+.toast-error { background:#dc2626; }
+
+/* ========== モーダル ========== */
+.modal-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.5); z-index:500; justify-content:center; align-items:center; }
+.modal-overlay.active { display:flex; }
+.modal { background:#fff; border-radius:12px; padding:24px; max-width:680px; width:90%; max-height:85vh; overflow-y:auto; }
+.modal h3 { margin-bottom:16px; }
+.modal-close { float:right; background:none; border:none; font-size:24px; cursor:pointer; color:#6b7280; }
+.modal-section { margin-top:16px; padding-top:12px; border-top:1px solid #e5e7eb; }
+.modal-section strong { display:block; margin-bottom:8px; color:#374151; }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="header">
+  <h1>売上管理ダッシュボード v2</h1>
+  <button class="refresh-btn" onclick="loadDashboard(currentPeriod)">データ更新</button>
+</div>
+
+<!-- タブ -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('dashboard')">ダッシュボード</div>
+  <div class="tab" onclick="switchTab('projects')">案件管理</div>
+  <div class="tab" onclick="switchTab('entry')">新規登録</div>
+</div>
+
+<!-- トースト -->
+<div id="toast" class="toast"></div>
+
+<div class="content">
+
+<!-- ========== ダッシュボード ========== -->
+<div id="page-dashboard" class="page active">
+  <div id="dashboard-loading" class="loading"><div class="spinner"></div><p style="margin-top:12px">読み込み中...</p></div>
+  <div id="dashboard-content" style="display:none">
+
+    <!-- 期間セレクタ -->
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:600;color:#475569;margin-right:4px">期間:</span>
+      <button class="period-btn active" onclick="switchPeriod('month')">当月</button>
+      <button class="period-btn" onclick="switchPeriod('1q')">1Q</button>
+      <button class="period-btn" onclick="switchPeriod('2q')">2Q</button>
+      <button class="period-btn" onclick="switchPeriod('3q')">3Q</button>
+      <button class="period-btn" onclick="switchPeriod('4q')">4Q</button>
+      <button class="period-btn" onclick="switchPeriod('year')">今期</button>
+      <span id="period-label" style="font-size:11px;color:#9ca3af;margin-left:8px"></span>
+    </div>
+
+    <!-- KPI -->
+    <div class="cards" id="kpi-cards"></div>
+
+    <!-- ヨミ管理KPI -->
+    <div class="section-title">売上見込み（ヨミ管理）</div>
+    <div class="cards" id="forecast-cards"></div>
+
+    <!-- ファネル -->
+    <div class="section-title">パイプライン（ファネル）</div>
+    <div class="funnel-container" id="funnel-container"></div>
+
+    <!-- グラフ: 月別推移 -->
+    <div class="section-title">月別推移</div>
+    <div class="chart-box" style="margin-bottom:24px">
+      <h3>月別推移（過去12ヶ月）</h3>
+      <canvas id="chart-monthly" height="200"></canvas>
+    </div>
+
+    <!-- 入金ギャップ -->
+    <div class="section-title">入金予定 vs 実績</div>
+    <div class="gap-section">
+      <h3>入金ギャップ分析（過去6ヶ月 〜 今後3ヶ月）</h3>
+      <canvas id="chart-payment-gap" height="200"></canvas>
+    </div>
+
+    <!-- 入金遅延アラート -->
+    <div class="table-box">
+      <h3 style="color:#dc2626">入金遅延アラート</h3>
+      <div id="overdue-alerts"></div>
+    </div>
+
+    <!-- 顧客別売上 -->
+    <div class="table-box">
+      <h3>顧客別売上</h3>
+      <table id="customer-table">
+        <thead><tr><th>顧客名</th><th>合計金額</th><th>案件数</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 案件管理 ========== -->
+<div id="page-projects" class="page">
+  <div id="projects-loading" class="loading"><div class="spinner"></div><p style="margin-top:12px">読み込み中...</p></div>
+  <div class="table-box" id="projects-content" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3>案件一覧</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="filter-status" onchange="filterProjects()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+          <option value="">すべて</option>
+          <option value="商談見込み">商談見込み</option>
+          <option value="提案中">提案中</option>
+          <option value="見積もり提示">見積もり提示</option>
+          <option value="受注">受注</option>
+          <option value="請求済">請求済</option>
+          <option value="入金済">入金済</option>
+          <option value="失注">失注</option>
+        </select>
+        <select id="filter-yomi" onchange="filterProjects()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px">
+          <option value="">全ランク</option>
+          <option value="A">A (90%)</option>
+          <option value="B">B (70%)</option>
+          <option value="C">C (50%)</option>
+          <option value="D">D (30%)</option>
+          <option value="none">未設定</option>
+        </select>
+      </div>
+    </div>
+    <table id="projects-table">
+      <thead><tr>
+        <th>案件ID</th><th>顧客名</th><th>案件名</th><th>進捗</th><th>ステータス</th><th>ヨミ</th><th>合計金額</th><th>操作</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ========== 新規登録 ========== -->
+<div id="page-entry" class="page">
+  <div class="form-card">
+    <h3>新規案件登録</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>顧客名 *</label>
+        <input type="text" id="new-customer" placeholder="株式会社〇〇">
+      </div>
+      <div class="form-group">
+        <label>案件名 *</label>
+        <input type="text" id="new-project-name" placeholder="Webサイト制作">
+      </div>
+      <div class="form-group">
+        <label>見積日 *</label>
+        <input type="date" id="new-quote-date">
+      </div>
+      <div class="form-group">
+        <label>入金予定日</label>
+        <input type="date" id="new-due-date">
+      </div>
+      <div class="form-group">
+        <label>ステータス</label>
+        <select id="new-status">
+          <option value="商談見込み" selected>商談見込み</option>
+          <option value="提案中">提案中</option>
+          <option value="見積もり提示">見積もり提示</option>
+          <option value="受注">受注</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>ヨミランク</label>
+        <select id="new-yomi-rank">
+          <option value="">未設定</option>
+          <option value="A">A (確度90%)</option>
+          <option value="B">B (確度70%)</option>
+          <option value="C">C (確度50%)</option>
+          <option value="D">D (確度30%)</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>備考</label>
+        <textarea id="new-memo" rows="2" placeholder="補足事項があれば"></textarea>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="submitNewProject()">案件を登録</button>
+  </div>
+
+  <div class="form-card">
+    <h3>明細行追加</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>案件ID *</label>
+        <select id="item-project-id"></select>
+      </div>
+      <div class="form-group">
+        <label>品目名 *</label>
+        <input type="text" id="item-name" placeholder="コンサルティング">
+      </div>
+      <div class="form-group">
+        <label>単価 *</label>
+        <input type="number" id="item-price" placeholder="50000">
+      </div>
+      <div class="form-group">
+        <label>数量 *</label>
+        <input type="number" id="item-qty" placeholder="1" value="1">
+      </div>
+    </div>
+    <button class="btn btn-success" onclick="submitNewItem()">明細を追加</button>
+  </div>
+</div>
+
+</div>
+
+<!-- 案件詳細モーダル -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h3 id="modal-title">案件詳細</h3>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ========== 定数 ==========
+var STATUSES = ['商談見込み','提案中','見積もり提示','受注','請求済','入金済','失注'];
+var PROGRESS_MAP = {
+  '商談見込み': { pct: 14, color: '#90CAF9' },
+  '提案中':     { pct: 28, color: '#42A5F5' },
+  '見積もり提示': { pct: 43, color: '#1E88E5' },
+  '受注':       { pct: 57, color: '#66BB6A' },
+  '請求済':     { pct: 71, color: '#FFA726' },
+  '入金済':     { pct: 100, color: '#4CAF50' },
+  '失注':       { pct: 100, color: '#EF5350' }
+};
+var FUNNEL_COLORS = ['#90CAF9','#42A5F5','#1E88E5','#66BB6A','#FFA726','#4CAF50'];
+var YOMI_RATES = { A: 90, B: 70, C: 50, D: 30 };
+
+// ========== グローバル ==========
+var dashboardData = null;
+var allProjects = [];
+var monthlyChart = null;
+var paymentGapChart = null;
+var currentPeriod = 'month';
+
+var PERIOD_LABELS = {
+  'month': '当月',
+  '1q': '1Q（2〜4月）',
+  '2q': '2Q（5〜7月）',
+  '3q': '3Q（8〜10月）',
+  '4q': '4Q（11〜1月）',
+  'year': '今期（2月〜1月）'
+};
+
+// ========== 初期化 ==========
+document.addEventListener('DOMContentLoaded', function() {
+  var today = new Date().toISOString().split('T')[0];
+  document.getElementById('new-quote-date').value = today;
+  loadDashboard('month');
+});
+
+// ========== タブ切替 ==========
+function switchTab(tabName) {
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  var tabs = document.querySelectorAll('.tab');
+  var mapping = { dashboard: 0, projects: 1, entry: 2 };
+  tabs[mapping[tabName]].classList.add('active');
+  document.getElementById('page-' + tabName).classList.add('active');
+  if (tabName === 'projects') loadProjects();
+  if (tabName === 'entry') loadProjectSelect();
+}
+
+// ========== 期間切替 ==========
+function switchPeriod(period) {
+  currentPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
+  var btns = document.querySelectorAll('.period-btn');
+  var map = { 'month': 0, '1q': 1, '2q': 2, '3q': 3, '4q': 4, 'year': 5 };
+  if (btns[map[period]]) btns[map[period]].classList.add('active');
+  loadDashboard(period);
+}
+
+// ========== ダッシュボード ==========
+function loadDashboard(period) {
+  period = period || currentPeriod;
+  var loadingEl = document.getElementById('dashboard-loading');
+  var contentEl = document.getElementById('dashboard-content');
+  loadingEl.style.display = 'block';
+  loadingEl.innerHTML = '<div class="spinner"></div><p style="margin-top:12px">読み込み中...</p>';
+  contentEl.style.display = 'none';
+
+  var done = false;
+  var timer = setTimeout(function() {
+    if (!done) {
+      loadingEl.innerHTML = '<p style="color:#dc2626">読み込みがタイムアウトしました（30秒）。<br>ページを再読み込みしてください。</p>';
+    }
+  }, 30000);
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      done = true;
+      clearTimeout(timer);
+      dashboardData = data;
+      renderDashboard(data);
+      loadingEl.style.display = 'none';
+      contentEl.style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      done = true;
+      clearTimeout(timer);
+      loadingEl.innerHTML = '<p style="color:#dc2626">エラー: ' + err.message + '<br>ページを再読み込みしてください。</p>';
+    })
+    .getDashboardData(period);
+}
+
+function renderDashboard(data) {
+  var kpi = data.kpi;
+
+  // 期間ラベル更新
+  var pl = document.getElementById('period-label');
+  if (pl) pl.textContent = PERIOD_LABELS[data.period] || '';
+
+  // KPIカード（アクティブ件数がメイン）
+  var kh = '';
+  kh += kpiCard('アクティブ件数', kpi.activeProjects + '件', 'blue', '総案件数: ' + kpi.totalProjects + '件');
+  kh += kpiCard('受注率', kpi.orderRate + '%', 'blue', '');
+  kh += kpiCard('未入金残高', '¥' + numFmt(kpi.unpaidAmount), kpi.unpaidAmount > 0 ? 'red' : 'green', '');
+  kh += kpiCard('失注', kpi.lostCount + '件', kpi.lostCount > 0 ? 'amber' : 'green', '');
+  document.getElementById('kpi-cards').innerHTML = kh;
+
+  // ヨミ管理KPI
+  var fc = data.forecast;
+  var fh = '';
+  fh += kpiCard('確定売上', '¥' + numFmt(fc.confirmed), 'green', '受注+請求済+入金済');
+  fh += kpiCard('ヨミ売上（加重）', '¥' + numFmt(fc.weightedPipeline), 'purple', '確度×金額の合計');
+  fh += kpiCard('合計見込み', '¥' + numFmt(fc.totalForecast), 'blue', '確定+ヨミ');
+  var rankDetail = 'A:¥' + numFmt(fc.byRank.A) + ' B:¥' + numFmt(fc.byRank.B) + ' C:¥' + numFmt(fc.byRank.C) + ' D:¥' + numFmt(fc.byRank.D);
+  fh += kpiCard('ランク別パイプライン', '', 'blue', rankDetail);
+  document.getElementById('forecast-cards').innerHTML = fh;
+
+  // ファネル
+  renderFunnel(data.funnel);
+
+  // 月別推移
+  renderMonthlyChart(data.monthly);
+
+  // 入金ギャップ
+  renderPaymentGapChart(data.paymentGap);
+
+  // アラート
+  var alertHtml = '';
+  if (data.overdueAlerts.length === 0) {
+    alertHtml = '<p style="color:#059669;padding:12px">遅延なし</p>';
+  } else {
+    data.overdueAlerts.forEach(function(a) {
+      alertHtml += '<div class="alert-row"><span class="days">' + a.daysOverdue + '日超過</span>' +
+        '<span><strong>' + a.customer + '</strong> / ' + a.projectName + ' (' + a.projectId + ') — ¥' + numFmt(a.total) + ' / 期限: ' + a.dueDate + '</span></div>';
+    });
+  }
+  document.getElementById('overdue-alerts').innerHTML = alertHtml;
+
+  // 顧客別
+  var tbody = document.querySelector('#customer-table tbody');
+  tbody.innerHTML = '';
+  data.customers.forEach(function(c) {
+    tbody.innerHTML += '<tr><td>' + c.name + '</td><td>¥' + numFmt(c.total) + '</td><td>' + c.count + '件</td></tr>';
+  });
+}
+
+function kpiCard(label, value, color, sub) {
+  return '<div class="card"><div class="label">' + label + '</div><div class="value ' + color + '">' + value + '</div>' +
+    (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+}
+
+// ========== ファネル描画 ==========
+function renderFunnel(funnel) {
+  var maxAmount = 0;
+  funnel.forEach(function(f) { if (f.amount > maxAmount) maxAmount = f.amount; });
+  if (maxAmount === 0) maxAmount = 1;
+
+  var html = '';
+  for (var i = 0; i < funnel.length; i++) {
+    var f = funnel[i];
+    var widthPct = Math.max(20, Math.round((f.amount / maxAmount) * 100));
+    var conv = i > 0 ? '<span class="funnel-conv">→ ' + f.conversionRate + '%</span>' : '';
+    html += '<div class="funnel-stage">' +
+      '<div class="funnel-label">' + f.stage + conv + '</div>' +
+      '<div class="funnel-bar-wrap"><div class="funnel-bar" style="width:' + widthPct + '%;background:' + FUNNEL_COLORS[i] + '">' + f.count + '件</div></div>' +
+      '<div class="funnel-meta">¥' + numFmt(f.amount) + '</div>' +
+      '</div>';
+  }
+  document.getElementById('funnel-container').innerHTML = html;
+}
+
+// ========== 月別推移グラフ ==========
+function renderMonthlyChart(monthly) {
+  var ctx = document.getElementById('chart-monthly').getContext('2d');
+  if (monthlyChart) monthlyChart.destroy();
+  monthlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: monthly.map(function(m) { return m.month; }),
+      datasets: [
+        { label: '見積件数', data: monthly.map(function(m) { return m.estimates; }), backgroundColor: '#93c5fd', yAxisID: 'y' },
+        { label: '受注件数', data: monthly.map(function(m) { return m.orders; }), backgroundColor: '#6ee7b7', yAxisID: 'y' },
+        { label: '売上金額', data: monthly.map(function(m) { return m.revenue; }), type: 'line', borderColor: '#dc2626', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 },
+        { label: '入金金額', data: monthly.map(function(m) { return m.paid; }), type: 'line', borderColor: '#f59e0b', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { position: 'left', title: { display: true, text: '件数' } },
+        y1: { position: 'right', title: { display: true, text: '金額' }, grid: { drawOnChartArea: false } }
+      }
+    }
+  });
+}
+
+// ========== 入金ギャップグラフ ==========
+function renderPaymentGapChart(paymentGap) {
+  var ctx = document.getElementById('chart-payment-gap').getContext('2d');
+  if (paymentGapChart) paymentGapChart.destroy();
+  paymentGapChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: paymentGap.map(function(p) { return p.month; }),
+      datasets: [
+        { label: '入金予定', data: paymentGap.map(function(p) { return p.planned; }), backgroundColor: '#93c5fd' },
+        { label: '実績入金', data: paymentGap.map(function(p) { return p.actual; }), backgroundColor: '#6ee7b7' },
+        { label: 'ギャップ', data: paymentGap.map(function(p) { return p.gap; }), type: 'line', borderColor: '#dc2626', backgroundColor: 'transparent', borderDash: [5, 5], tension: 0.3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      scales: { y: { title: { display: true, text: '金額（円）' } } },
+      plugins: { tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ¥' + ctx.parsed.y.toLocaleString(); } } } }
+    }
+  });
+}
+
+// ========== 案件管理 ==========
+function loadProjects() {
+  document.getElementById('projects-loading').style.display = 'block';
+  document.getElementById('projects-content').style.display = 'none';
+  google.script.run
+    .withSuccessHandler(function(projects) {
+      allProjects = projects;
+      renderProjects(projects);
+      document.getElementById('projects-loading').style.display = 'none';
+      document.getElementById('projects-content').style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('projects-loading').innerHTML = '<p style="color:#dc2626">エラー: ' + err.message + '</p>';
+    })
+    .getProjectsList();
+}
+
+function renderProjects(projects) {
+  var tbody = document.querySelector('#projects-table tbody');
+  tbody.innerHTML = '';
+  projects.forEach(function(p) {
+    var prog = PROGRESS_MAP[p.status] || { pct: 0, color: '#ccc' };
+    var yomiHtml = p.yomiRank ? '<span class="yomi yomi-' + p.yomiRank + '">' + p.yomiRank + ' (' + (YOMI_RATES[p.yomiRank] || 0) + '%)</span>' : '<span class="yomi yomi-">-</span>';
+
+    tbody.innerHTML += '<tr>' +
+      '<td><a href="#" onclick="showProjectDetail(\'' + p.projectId + '\');return false;">' + p.projectId + '</a></td>' +
+      '<td>' + p.customer + '</td>' +
+      '<td>' + p.projectName + '</td>' +
+      '<td style="min-width:80px"><div class="progress-wrap"><div class="progress-bar" style="width:' + prog.pct + '%;background:' + prog.color + '"></div></div><div style="font-size:10px;color:#6b7280;margin-top:2px">' + prog.pct + '%</div></td>' +
+      '<td><span class="badge badge-' + p.status + '">' + p.status + '</span></td>' +
+      '<td>' + yomiHtml + '</td>' +
+      '<td>¥' + numFmt(p.total) + '</td>' +
+      '<td><button class="btn btn-primary btn-sm" onclick="openPDFMenu(\'' + p.projectId + '\')">帳票</button></td>' +
+      '</tr>';
+  });
+}
+
+function filterProjects() {
+  var status = document.getElementById('filter-status').value;
+  var yomi = document.getElementById('filter-yomi').value;
+  var filtered = allProjects.filter(function(p) {
+    var statusOk = !status || p.status === status;
+    var yomiOk = !yomi || (yomi === 'none' ? !p.yomiRank : p.yomiRank === yomi);
+    return statusOk && yomiOk;
+  });
+  renderProjects(filtered);
+}
+
+// ========== 案件詳細モーダル ==========
+var pendingStatus = '';
+var pendingYomi = '';
+var modalProjectId = '';
+
+function showProjectDetail(projectId) {
+  var p = allProjects.find(function(x) { return x.projectId === projectId; });
+  if (!p) return;
+
+  modalProjectId = projectId;
+  pendingStatus = p.status;
+  pendingYomi = p.yomiRank || '';
+
+  document.getElementById('modal-title').textContent = p.projectId + ' - ' + p.projectName;
+
+  var prog = PROGRESS_MAP[p.status] || { pct: 0, color: '#ccc' };
+  var html = '';
+
+  // 進捗バー
+  html += '<div id="modal-progress" style="margin-bottom:16px"><div class="progress-wrap" style="height:12px"><div class="progress-bar" style="width:' + prog.pct + '%;background:' + prog.color + '"></div></div>';
+  html += '<div style="font-size:12px;color:#6b7280;margin-top:4px">進捗: ' + prog.pct + '% (' + p.status + ')</div></div>';
+
+  // 基本情報
+  html += '<table style="width:100%">';
+  html += '<tr><th style="width:120px">顧客名</th><td>' + p.customer + '</td></tr>';
+  html += '<tr><th>見積日</th><td>' + p.quoteDate + '</td></tr>';
+  html += '<tr><th>受注日</th><td>' + (p.orderDate || '—') + '</td></tr>';
+  html += '<tr><th>請求日</th><td>' + (p.invoiceDate || '—') + '</td></tr>';
+  html += '<tr><th>入金予定日</th><td>' + (p.dueDate || '—') + '</td></tr>';
+  html += '<tr><th>入金日</th><td>' + (p.paymentDate || '—') + '</td></tr>';
+  html += '<tr><th>合計金額</th><td><strong>¥' + numFmt(p.total) + '</strong></td></tr>';
+  html += '</table>';
+
+  // ステータス選択（トグル式）
+  html += '<div class="modal-section"><strong>ステータス:</strong><div class="btn-group" id="status-btns">';
+  STATUSES.forEach(function(s) {
+    var selected = s === p.status ? ' style="outline:3px solid #1e3a5f;opacity:1"' : '';
+    var cls = s === '失注' ? 'btn-danger' : 'btn-outline';
+    html += '<button class="btn btn-sm ' + cls + '" id="sbtn-' + s + '"' + selected + ' onclick="selectStatus(\'' + s + '\')">' + s + '</button>';
+  });
+  html += '</div></div>';
+
+  // ヨミランク選択（トグル式）
+  html += '<div class="modal-section"><strong>ヨミランク:</strong><div class="btn-group" id="yomi-btns">';
+  ['A','B','C','D'].forEach(function(r) {
+    var selected = r === p.yomiRank ? ' style="outline:3px solid #1e3a5f;opacity:1"' : '';
+    html += '<button class="btn btn-sm btn-outline" id="ybtn-' + r + '"' + selected + ' onclick="selectYomi(\'' + r + '\')">' + r + ' (' + YOMI_RATES[r] + '%)</button>';
+  });
+  html += '</div></div>';
+
+  // 備考メモ
+  html += '<div class="modal-section"><strong>備考メモ:</strong>';
+  html += '<textarea id="memo-edit" rows="3" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-top:6px;resize:vertical">' + (p.memo || '') + '</textarea>';
+  html += '</div>';
+
+  // 帳票リンク
+  html += '<div class="modal-section"><strong>帳票:</strong><div class="btn-group">';
+  if (p.estimateUrl) html += '<a href="' + p.estimateUrl + '" target="_blank" class="btn btn-sm btn-success">見積書PDF</a>';
+  if (p.orderUrl) html += '<a href="' + p.orderUrl + '" target="_blank" class="btn btn-sm btn-success">発注書PDF</a>';
+  if (p.invoiceUrl) html += '<a href="' + p.invoiceUrl + '" target="_blank" class="btn btn-sm btn-success">請求書PDF</a>';
+  if (!p.estimateUrl && !p.orderUrl && !p.invoiceUrl) html += '<span style="color:#6b7280">帳票未生成</span>';
+  html += '</div></div>';
+
+  // 明細
+  html += '<div class="modal-section"><strong>明細:</strong><div id="modal-items">読み込み中...</div></div>';
+
+  // 右下に一括保存ボタン
+  html += '<div style="display:flex;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:2px solid #e5e7eb">';
+  html += '<button class="btn btn-primary" style="padding:12px 32px;font-size:15px" onclick="saveAll()">保存</button>';
+  html += '</div>';
+
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('modal-overlay').classList.add('active');
+
+  google.script.run
+    .withSuccessHandler(function(items) {
+      var ih = '<table style="width:100%;margin-top:8px"><thead><tr><th>品目名</th><th>単価</th><th>数量</th><th>小計</th></tr></thead><tbody>';
+      items.forEach(function(item) {
+        ih += '<tr><td>' + item.name + '</td><td>¥' + numFmt(item.unitPrice) + '</td><td>' + item.quantity + '</td><td>¥' + numFmt(item.subtotal) + '</td></tr>';
+      });
+      ih += '</tbody></table>';
+      document.getElementById('modal-items').innerHTML = items.length > 0 ? ih : '<p style="color:#6b7280;margin-top:8px">明細なし</p>';
+    })
+    .getItemsForProjectWeb(projectId);
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+// ========== ステータス選択（UI切替のみ） ==========
+function selectStatus(s) {
+  pendingStatus = s;
+  // ボタンのハイライト切替
+  STATUSES.forEach(function(st) {
+    var btn = document.getElementById('sbtn-' + st);
+    if (btn) {
+      btn.style.outline = st === s ? '3px solid #1e3a5f' : 'none';
+      btn.style.opacity = '1';
+    }
+  });
+  // 進捗バーをリアルタイム更新
+  var prog = PROGRESS_MAP[s] || { pct: 0, color: '#ccc' };
+  var progEl = document.getElementById('modal-progress');
+  if (progEl) {
+    progEl.innerHTML = '<div class="progress-wrap" style="height:12px"><div class="progress-bar" style="width:' + prog.pct + '%;background:' + prog.color + '"></div></div>' +
+      '<div style="font-size:12px;color:#6b7280;margin-top:4px">進捗: ' + prog.pct + '% (' + s + ')</div>';
+  }
+}
+
+// ========== ヨミランク選択（UI切替のみ） ==========
+function selectYomi(r) {
+  pendingYomi = r;
+  ['A','B','C','D'].forEach(function(rank) {
+    var btn = document.getElementById('ybtn-' + rank);
+    if (btn) {
+      btn.style.outline = rank === r ? '3px solid #1e3a5f' : 'none';
+      btn.style.opacity = '1';
+    }
+  });
+}
+
+// ========== 一括保存 ==========
+function saveAll() {
+  var memo = document.getElementById('memo-edit').value;
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        showToast(result.message, 'success');
+        closeModal();
+        loadProjects();
+        loadDashboard();
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('エラー: ' + err.message, 'error');
+    })
+    .updateProjectBulk(modalProjectId, {
+      status: pendingStatus,
+      yomiRank: pendingYomi,
+      memo: memo
+    });
+}
+
+// ========== PDF生成 ==========
+function openPDFMenu(projectId) {
+  var choice = prompt('生成する帳票を入力:\n1 = 見積書\n2 = 発注書\n3 = 請求書');
+  var typeMap = { '1': 'estimate', '2': 'order', '3': 'invoice' };
+  var docType = typeMap[choice];
+  if (!docType) return;
+  showToast('PDF生成中...', 'success');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        showToast('PDF生成完了', 'success');
+        window.open(result.url, '_blank');
+        loadProjects();
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .generatePDFFromWeb(projectId, docType);
+}
+
+// ========== 新規登録 ==========
+function loadProjectSelect() {
+  google.script.run
+    .withSuccessHandler(function(projects) {
+      var sel = document.getElementById('item-project-id');
+      sel.innerHTML = '<option value="">選択してください</option>';
+      projects.forEach(function(p) {
+        sel.innerHTML += '<option value="' + p.projectId + '">' + p.projectId + ' / ' + p.customer + '</option>';
+      });
+    })
+    .getProjectsList();
+}
+
+function submitNewProject() {
+  var customer = document.getElementById('new-customer').value.trim();
+  var projectName = document.getElementById('new-project-name').value.trim();
+  var quoteDate = document.getElementById('new-quote-date').value;
+  if (!customer || !projectName || !quoteDate) {
+    showToast('顧客名・案件名・見積日は必須です', 'error');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        showToast('案件登録完了: ' + result.projectId, 'success');
+        document.getElementById('new-customer').value = '';
+        document.getElementById('new-project-name').value = '';
+        document.getElementById('new-memo').value = '';
+        document.getElementById('new-status').value = '商談見込み';
+        document.getElementById('new-yomi-rank').value = '';
+        loadProjectSelect();
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .addNewProject({
+      customer: customer,
+      projectName: projectName,
+      quoteDate: quoteDate,
+      dueDate: document.getElementById('new-due-date').value,
+      status: document.getElementById('new-status').value,
+      yomiRank: document.getElementById('new-yomi-rank').value,
+      memo: document.getElementById('new-memo').value
+    });
+}
+
+function submitNewItem() {
+  var projectId = document.getElementById('item-project-id').value;
+  var itemName = document.getElementById('item-name').value.trim();
+  var unitPrice = document.getElementById('item-price').value;
+  var quantity = document.getElementById('item-qty').value;
+  if (!projectId || !itemName || !unitPrice || !quantity) {
+    showToast('すべての項目を入力してください', 'error');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        showToast('明細追加完了', 'success');
+        document.getElementById('item-name').value = '';
+        document.getElementById('item-price').value = '';
+        document.getElementById('item-qty').value = '1';
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .addNewItem({ projectId: projectId, itemName: itemName, unitPrice: unitPrice, quantity: quantity });
+}
+
+// ========== ユーティリティ ==========
+function numFmt(n) {
+  if (!n && n !== 0) return '0';
+  return Math.floor(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function showToast(msg, type) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast toast-' + type + ' show';
+  setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+</script>
+</body>
+</html>
