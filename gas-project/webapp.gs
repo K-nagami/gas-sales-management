@@ -125,7 +125,9 @@ function getDashboardData(period) {
       totalForecast: 0,
       unpaidAmount: 0,
       lostCount: 0,
-      orderRate: 0
+      orderRate: 0,
+      totalProfit: 0,
+      totalRevenue: 0
     };
 
     var funnel = [];
@@ -167,6 +169,10 @@ function getDashboardData(period) {
       var tax = Math.floor(subtotal * taxRate);
       var total = subtotal + tax;
       var yomiRank = row[16] || '';
+      var purchaseSubtotal = parseFloat(row[21]) || 0; // V列: 仕入金額（税抜）
+      var purchaseTax = Math.floor(purchaseSubtotal * taxRate);
+      var purchaseTotal = purchaseSubtotal + purchaseTax;
+      var profit = total - purchaseTotal;
 
       // ★ 現ステータスの基準日を取得
       var baseDate = getStatusBaseDate_(row, status);
@@ -189,6 +195,11 @@ function getDashboardData(period) {
         // 未入金（請求済）: F列が期間内
         if (status === '請求済') {
           kpi.unpaidAmount += total;
+        }
+        // 粗利集計（受注以降の確定案件）
+        if (status === '受注' || status === '請求済' || status === '入金済') {
+          kpi.totalProfit += profit;
+          kpi.totalRevenue += total;
         }
         // ヨミ管理（売上予測）
         if (status === '受注' || status === '請求済' || status === '入金済') {
@@ -255,26 +266,27 @@ function getDashboardData(period) {
         var qd2 = new Date(quoteDate);
         var monthKey = qd2.getFullYear() + '-' + String(qd2.getMonth() + 1).padStart(2, '0');
         if (!monthlyData[monthKey]) {
-          monthlyData[monthKey] = { estimates: 0, orders: 0, revenue: 0, paid: 0 };
+          monthlyData[monthKey] = { estimates: 0, orders: 0, revenue: 0, paid: 0, profit: 0 };
         }
         monthlyData[monthKey].estimates++;
       }
       if (orderDate && (status === '受注' || status === '請求済' || status === '入金済')) {
         var od2 = new Date(orderDate);
         var mKey2 = od2.getFullYear() + '-' + String(od2.getMonth() + 1).padStart(2, '0');
-        if (!monthlyData[mKey2]) monthlyData[mKey2] = { estimates: 0, orders: 0, revenue: 0, paid: 0 };
+        if (!monthlyData[mKey2]) monthlyData[mKey2] = { estimates: 0, orders: 0, revenue: 0, paid: 0, profit: 0 };
         monthlyData[mKey2].orders++;
       }
       if (invoiceDate && (status === '請求済' || status === '入金済')) {
         var id2 = new Date(invoiceDate);
         var mKey3 = id2.getFullYear() + '-' + String(id2.getMonth() + 1).padStart(2, '0');
-        if (!monthlyData[mKey3]) monthlyData[mKey3] = { estimates: 0, orders: 0, revenue: 0, paid: 0 };
+        if (!monthlyData[mKey3]) monthlyData[mKey3] = { estimates: 0, orders: 0, revenue: 0, paid: 0, profit: 0 };
         monthlyData[mKey3].revenue += total;
+        monthlyData[mKey3].profit += profit;
       }
       if (paymentDate && status === '入金済') {
         var pd2 = new Date(paymentDate);
         var mKey4 = pd2.getFullYear() + '-' + String(pd2.getMonth() + 1).padStart(2, '0');
-        if (!monthlyData[mKey4]) monthlyData[mKey4] = { estimates: 0, orders: 0, revenue: 0, paid: 0 };
+        if (!monthlyData[mKey4]) monthlyData[mKey4] = { estimates: 0, orders: 0, revenue: 0, paid: 0, profit: 0 };
         monthlyData[mKey4].paid += total;
       }
 
@@ -325,8 +337,8 @@ function getDashboardData(period) {
     for (var m = 11; m >= 0; m--) {
       var td = new Date(thisYear, thisMonth - m, 1);
       var mk = td.getFullYear() + '-' + String(td.getMonth() + 1).padStart(2, '0');
-      var md = monthlyData[mk] || { estimates: 0, orders: 0, revenue: 0, paid: 0 };
-      monthlyArray.push({ month: mk, estimates: md.estimates, orders: md.orders, revenue: md.revenue, paid: md.paid });
+      var md = monthlyData[mk] || { estimates: 0, orders: 0, revenue: 0, paid: 0, profit: 0 };
+      monthlyArray.push({ month: mk, estimates: md.estimates, orders: md.orders, revenue: md.revenue, paid: md.paid, profit: md.profit });
     }
 
     // 入金ギャップを配列に変換（過去6ヶ月 + 今後3ヶ月）
@@ -382,6 +394,11 @@ function getProjectsList() {
     for (var i = 1; i < data.length; i++) {
       if (!data[i][0]) continue;
       var subtotal = parseFloat(data[i][9]) || 0;
+      var salesTotal = subtotal + Math.floor(subtotal * taxRate);
+      var purchaseSub = parseFloat(data[i][21]) || 0;
+      var purchaseTotal = purchaseSub + Math.floor(purchaseSub * taxRate);
+      var projProfit = salesTotal - purchaseTotal;
+      var projProfitRate = salesTotal > 0 ? projProfit / salesTotal : 0;
       projects.push({
         row: i + 1,
         projectId: data[i][0],
@@ -395,12 +412,20 @@ function getProjectsList() {
         status: data[i][8],
         subtotal: subtotal,
         tax: Math.floor(subtotal * taxRate),
-        total: subtotal + Math.floor(subtotal * taxRate),
+        total: salesTotal,
         estimateUrl: data[i][12],
         orderUrl: data[i][13],
         invoiceUrl: data[i][14],
         memo: data[i][15],
-        yomiRank: data[i][16] || ''
+        yomiRank: data[i][16] || '',
+        supplierName: data[i][20] || '',
+        purchaseSubtotal: purchaseSub,
+        purchaseTotal: purchaseTotal,
+        supplierInvoiceNo: data[i][24] || '',
+        paymentDueDate: data[i][25] ? formatDate_(data[i][25]) : '',
+        supplierInvoiceUrl: data[i][26] || '',
+        profit: projProfit,
+        profitRate: projProfitRate
       });
     }
     return projects;
@@ -484,6 +509,12 @@ function addNewProject(formData) {
     sheet.getRange(newRow, 10).setFormula('=SUMIF(明細!A:A,A' + newRow + ',明細!E:E)');
     sheet.getRange(newRow, 11).setFormula('=FLOOR(J' + newRow + '*設定!B13)');
     sheet.getRange(newRow, 12).setFormula('=J' + newRow + '+K' + newRow);
+
+    // W/X/AB/AC列の数式（仕入・粗利）
+    sheet.getRange(newRow, 23).setFormula('=FLOOR(V' + newRow + '*設定!B13)');
+    sheet.getRange(newRow, 24).setFormula('=V' + newRow + '+W' + newRow);
+    sheet.getRange(newRow, 28).setFormula('=L' + newRow + '-X' + newRow);
+    sheet.getRange(newRow, 29).setFormula('=IFERROR(AB' + newRow + '/L' + newRow + ',0)');
 
     return { success: true, projectId: projectId };
   } catch (error) {
@@ -683,16 +714,18 @@ function generatePDFFromWeb(projectId, docType) {
     };
 
     var replacements = buildReplacements_(rowData, settings, items);
-    var templateId, fileName, urlCol;
+    var templateId, fileName, urlCol, transactionDate;
 
     if (docType === 'estimate') {
       templateId = settings.estimateTemplateId;
       fileName = '見積書_' + projectId + '_' + values[1] + '.pdf';
+      transactionDate = replacements['{{見積日}}'];
       urlCol = 13;
     } else if (docType === 'order') {
       templateId = settings.orderTemplateId;
       fileName = '発注書_' + projectId + '_' + values[1] + '.pdf';
       replacements['{{発注書注意書き}}'] = settings.orderNote;
+      transactionDate = replacements['{{発注日}}'];
       urlCol = 14;
     } else if (docType === 'invoice') {
       templateId = settings.invoiceTemplateId;
@@ -700,15 +733,200 @@ function generatePDFFromWeb(projectId, docType) {
       replacements['{{振込先情報}}'] = settings.bankName + ' ' + settings.branchName + '\n' +
         settings.accountType + ' ' + settings.accountNumber + '\n口座名義: ' + settings.accountHolder;
       replacements['{{入金予定日}}'] = values[6] ? formatDate_(values[6]) : '（未設定）';
+      transactionDate = replacements['{{請求日}}'];
       urlCol = 15;
     } else {
       return { success: false, message: '不明な帳票種別' };
     }
 
-    var pdfUrl = fillTemplateAndConvertToPDF(templateId, replacements, items, fileName, settings.folderId);
+    var pdfUrl = fillTemplateAndConvertToPDF(templateId, replacements, items, fileName, settings.folderId, transactionDate, settings.sealImageId);
     masterSheet.getRange(rowIndex + 1, urlCol).setValue(pdfUrl);
 
     return { success: true, url: pdfUrl };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// ============================================================================
+// 仕入情報更新
+// ============================================================================
+
+/**
+ * 案件の仕入情報を更新（U〜AA列）
+ */
+function updateProjectPurchase(projectId, purchaseData) {
+  try {
+    var ss = getSpreadsheet_();
+    var sheet = ss.getSheetByName('案件マスタ');
+    var data = sheet.getDataRange().getValues();
+
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === projectId) {
+        var row = i + 1;
+        sheet.getRange(row, 21).setValue((purchaseData.supplierName || '').trim());          // U: 仕入先名
+        sheet.getRange(row, 22).setValue(parseFloat(purchaseData.purchaseSubtotal) || 0);    // V: 仕入金額（税抜）
+        // W(23), X(24) は数式で自動計算
+        sheet.getRange(row, 25).setValue((purchaseData.supplierInvoiceNo || '').trim());      // Y: 仕入先請求番号
+        if (purchaseData.supplierPaymentDate) {
+          sheet.getRange(row, 26).setValue(new Date(purchaseData.supplierPaymentDate));       // Z: 支払日
+        } else {
+          sheet.getRange(row, 26).setValue('');
+        }
+        sheet.getRange(row, 27).setValue((purchaseData.supplierInvoiceUrl || '').trim());     // AA: 仕入先請求書URL
+
+        // 数式が未設定の場合はセット
+        var wVal = sheet.getRange(row, 23).getFormula();
+        if (!wVal) {
+          sheet.getRange(row, 23).setFormula('=FLOOR(V' + row + '*設定!B13)');
+          sheet.getRange(row, 24).setFormula('=V' + row + '+W' + row);
+          sheet.getRange(row, 28).setFormula('=L' + row + '-X' + row);
+          sheet.getRange(row, 29).setFormula('=IFERROR(AB' + row + '/L' + row + ',0)');
+        }
+
+        return { success: true, message: '仕入情報を更新しました' };
+      }
+    }
+    return { success: false, message: '案件が見つかりません' };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+// ============================================================================
+// 顧客マスタ CRUD
+// ============================================================================
+
+/**
+ * 顧客一覧を取得
+ * 案件マスタに存在するが顧客マスタ未登録の呼称リストも返す
+ */
+function getCustomersList() {
+  try {
+    var ss = getSpreadsheet_();
+    var sheet = ss.getSheetByName('顧客マスタ');
+
+    var customers = [];
+    var registeredNicknames = {};
+
+    if (sheet) {
+      var data = sheet.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (!data[i][0]) continue;
+        var nickname = data[i][0];
+        registeredNicknames[nickname] = true;
+        customers.push({
+          row: i + 1,
+          nickname:    nickname,
+          displayName: data[i][1] || '',
+          postalCode:  data[i][2] || '',
+          address1:    data[i][3] || '',
+          address2:    data[i][4] || '',
+          title:       data[i][5] || '',
+          contactName: data[i][6] || '',
+          email:       data[i][7] || '',
+          memo:        data[i][8] || ''
+        });
+      }
+    }
+
+    // 案件マスタから未登録顧客を抽出
+    var masterSheet = ss.getSheetByName('案件マスタ');
+    var unregistered = [];
+    if (masterSheet) {
+      var masterData = masterSheet.getDataRange().getValues();
+      var seen = {};
+      for (var j = 1; j < masterData.length; j++) {
+        var name = masterData[j][1];
+        if (name && name !== '' && !registeredNicknames[name] && !seen[name]) {
+          seen[name] = true;
+          unregistered.push(name);
+        }
+      }
+    }
+
+    return { success: true, customers: customers, unregistered: unregistered };
+  } catch (error) {
+    return { success: false, message: error.message, customers: [], unregistered: [] };
+  }
+}
+
+/**
+ * 新規顧客を登録
+ */
+function addNewCustomer(formData) {
+  try {
+    var ss = getSpreadsheet_();
+    var sheet = ss.getSheetByName('顧客マスタ');
+    if (!sheet) {
+      return { success: false, message: '顧客マスタシートが見つかりません。migrateV4b()を実行してください。' };
+    }
+
+    var nickname = (formData.nickname || '').trim();
+    if (!nickname) {
+      return { success: false, message: '呼称は必須です' };
+    }
+
+    // 呼称の重複チェック
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === nickname) {
+        return { success: false, message: '呼称「' + nickname + '」は既に登録されています' };
+      }
+    }
+
+    var newRow = sheet.getLastRow() + 1;
+    var rowData = [
+      nickname,
+      (formData.displayName || '').trim(),
+      (formData.postalCode || '').trim(),
+      (formData.address1 || '').trim(),
+      (formData.address2 || '').trim(),
+      (formData.title || '').trim(),
+      (formData.contactName || '').trim(),
+      (formData.email || '').trim(),
+      (formData.memo || '').trim()
+    ];
+    sheet.getRange(newRow, 1, 1, 9).setValues([rowData]);
+
+    return { success: true, message: '顧客「' + nickname + '」を登録しました' };
+  } catch (error) {
+    return { success: false, message: error.message };
+  }
+}
+
+/**
+ * 既存顧客を更新（呼称をキーに検索）
+ */
+function updateCustomer(formData) {
+  try {
+    var ss = getSpreadsheet_();
+    var sheet = ss.getSheetByName('顧客マスタ');
+    if (!sheet) {
+      return { success: false, message: '顧客マスタシートが見つかりません' };
+    }
+
+    var nickname = (formData.nickname || '').trim();
+    if (!nickname) {
+      return { success: false, message: '呼称は必須です' };
+    }
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === nickname) {
+        var row = i + 1;
+        sheet.getRange(row, 2).setValue((formData.displayName || '').trim());
+        sheet.getRange(row, 3).setValue((formData.postalCode || '').trim());
+        sheet.getRange(row, 4).setValue((formData.address1 || '').trim());
+        sheet.getRange(row, 5).setValue((formData.address2 || '').trim());
+        sheet.getRange(row, 6).setValue((formData.title || '').trim());
+        sheet.getRange(row, 7).setValue((formData.contactName || '').trim());
+        sheet.getRange(row, 8).setValue((formData.email || '').trim());
+        sheet.getRange(row, 9).setValue((formData.memo || '').trim());
+        return { success: true, message: '顧客「' + nickname + '」を更新しました' };
+      }
+    }
+    return { success: false, message: '顧客「' + nickname + '」が見つかりません' };
   } catch (error) {
     return { success: false, message: error.message };
   }
@@ -824,7 +1042,8 @@ function generateBulkInvoices(projectIds) {
         replacements['{{入金予定日}}'] = values[6] ? formatDate_(values[6]) : '（未設定）';
 
         var fileName = '請求書_' + pid + '_' + values[1] + '.pdf';
-        var pdfUrl = fillTemplateAndConvertToPDF(settings.invoiceTemplateId, replacements, items, fileName, settings.folderId);
+        var transactionDate = replacements['{{請求日}}'];
+        var pdfUrl = fillTemplateAndConvertToPDF(settings.invoiceTemplateId, replacements, items, fileName, settings.folderId, transactionDate, settings.sealImageId);
 
         // O列（15列目）に請求書URLを保存
         masterSheet.getRange(rowIndex + 1, 15).setValue(pdfUrl);

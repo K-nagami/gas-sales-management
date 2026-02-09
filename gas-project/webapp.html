@@ -151,7 +151,8 @@ tr:hover { background:#f8fafc; }
 <div class="tabs">
   <div class="tab active" onclick="switchTab('dashboard')">ダッシュボード</div>
   <div class="tab" onclick="switchTab('projects')">案件管理</div>
-  <div class="tab" onclick="switchTab('entry')">新規登録</div>
+  <div class="tab" onclick="switchTab('entry')">新規案件登録</div>
+  <div class="tab" onclick="switchTab('customers')">顧客管理</div>
 </div>
 
 <!-- トースト -->
@@ -249,7 +250,7 @@ tr:hover { background:#f8fafc; }
     <table id="projects-table">
       <thead><tr>
         <th style="width:36px"><input type="checkbox" id="select-all" onchange="toggleSelectAll()" title="全選択"></th>
-        <th>案件ID</th><th>顧客名</th><th>案件名</th><th>進捗</th><th>ステータス</th><th>ヨミ</th><th>合計金額</th><th>操作</th>
+        <th>案件ID</th><th>顧客名</th><th>案件名</th><th>進捗</th><th>ステータス</th><th>ヨミ</th><th>合計金額</th><th>粗利率</th><th>操作</th>
       </tr></thead>
       <tbody></tbody>
     </table>
@@ -262,8 +263,9 @@ tr:hover { background:#f8fafc; }
     <h3>新規案件登録</h3>
     <div class="form-grid">
       <div class="form-group">
-        <label>顧客名 *</label>
-        <input type="text" id="new-customer" placeholder="株式会社〇〇">
+        <label>顧客名（呼称） *</label>
+        <input type="text" id="new-customer" placeholder="株式会社〇〇" list="customer-datalist">
+        <datalist id="customer-datalist"></datalist>
       </div>
       <div class="form-group">
         <label>案件名 *</label>
@@ -328,6 +330,77 @@ tr:hover { background:#f8fafc; }
   </div>
 </div>
 
+<!-- ========== 顧客管理 ========== -->
+<div id="page-customers" class="page">
+  <div id="customers-loading" class="loading"><div class="spinner"></div><p style="margin-top:12px">読み込み中...</p></div>
+  <div id="customers-content" style="display:none">
+
+    <!-- 未登録顧客セクション -->
+    <div id="unregistered-section" class="table-box" style="display:none">
+      <h3 style="color:#d97706">未登録顧客（案件マスタにのみ存在）</h3>
+      <p style="font-size:12px;color:#6b7280;margin-bottom:12px">案件に紐づいているが顧客マスタに未登録の顧客です。「登録」ボタンで顧客情報を入力できます。</p>
+      <div id="unregistered-list"></div>
+    </div>
+
+    <!-- 新規顧客登録フォーム -->
+    <div class="form-card">
+      <h3 id="customer-form-title">新規顧客登録</h3>
+      <input type="hidden" id="customer-edit-mode" value="new">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>呼称（管理用） *</label>
+          <input type="text" id="cust-nickname" placeholder="例: ミキヤホームズ">
+        </div>
+        <div class="form-group">
+          <label>名称（帳票記載用） *</label>
+          <input type="text" id="cust-displayname" placeholder="例: 株式会社ミキヤホームズ">
+        </div>
+        <div class="form-group">
+          <label>郵便番号</label>
+          <input type="text" id="cust-postal" placeholder="〒000-0000">
+        </div>
+        <div class="form-group">
+          <label>住所1</label>
+          <input type="text" id="cust-address1" placeholder="東京都渋谷区...">
+        </div>
+        <div class="form-group">
+          <label>住所2（ビル名等）</label>
+          <input type="text" id="cust-address2" placeholder="〇〇ビル3F">
+        </div>
+        <div class="form-group">
+          <label>役職</label>
+          <input type="text" id="cust-title" placeholder="代表取締役">
+        </div>
+        <div class="form-group">
+          <label>担当者名</label>
+          <input type="text" id="cust-contact" placeholder="山田 太郎">
+        </div>
+        <div class="form-group">
+          <label>メールアドレス</label>
+          <input type="email" id="cust-email" placeholder="info@example.com">
+        </div>
+        <div class="form-group full">
+          <label>備考</label>
+          <textarea id="cust-memo" rows="2" placeholder="補足事項"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" id="cust-submit-btn" onclick="submitCustomer()">登録</button>
+        <button class="btn btn-outline" id="cust-cancel-btn" onclick="cancelCustomerEdit()" style="display:none">キャンセル</button>
+      </div>
+    </div>
+
+    <!-- 登録済み顧客一覧 -->
+    <div class="table-box">
+      <h3>登録済み顧客一覧</h3>
+      <table id="customers-table">
+        <thead><tr><th>呼称</th><th>名称</th><th>住所</th><th>担当者</th><th>操作</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <!-- 案件詳細モーダル -->
@@ -382,11 +455,12 @@ function switchTab(tabName) {
   document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   var tabs = document.querySelectorAll('.tab');
-  var mapping = { dashboard: 0, projects: 1, entry: 2 };
+  var mapping = { dashboard: 0, projects: 1, entry: 2, customers: 3 };
   tabs[mapping[tabName]].classList.add('active');
   document.getElementById('page-' + tabName).classList.add('active');
   if (tabName === 'projects') loadProjects();
-  if (tabName === 'entry') loadProjectSelect();
+  if (tabName === 'entry') { loadProjectSelect(); loadCustomerDatalist(); }
+  if (tabName === 'customers') loadCustomers();
 }
 
 // ========== 期間切替 ==========
@@ -445,6 +519,8 @@ function renderDashboard(data) {
   kh += kpiCard('受注率', kpi.orderRate + '%', 'blue', '');
   kh += kpiCard('未入金残高', '¥' + numFmt(kpi.unpaidAmount), kpi.unpaidAmount > 0 ? 'red' : 'green', '');
   kh += kpiCard('失注', kpi.lostCount + '件', kpi.lostCount > 0 ? 'amber' : 'green', '');
+  var profitRate = kpi.totalRevenue > 0 ? Math.round((kpi.totalProfit / kpi.totalRevenue) * 100) : 0;
+  kh += kpiCard('粗利合計', '¥' + numFmt(kpi.totalProfit), kpi.totalProfit > 0 ? 'green' : 'red', '粗利率: ' + profitRate + '%');
   document.getElementById('kpi-cards').innerHTML = kh;
 
   // ヨミ管理KPI
@@ -523,7 +599,8 @@ function renderMonthlyChart(monthly) {
         { label: '見積件数', data: monthly.map(function(m) { return m.estimates; }), backgroundColor: '#93c5fd', yAxisID: 'y' },
         { label: '受注件数', data: monthly.map(function(m) { return m.orders; }), backgroundColor: '#6ee7b7', yAxisID: 'y' },
         { label: '売上金額', data: monthly.map(function(m) { return m.revenue; }), type: 'line', borderColor: '#dc2626', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 },
-        { label: '入金金額', data: monthly.map(function(m) { return m.paid; }), type: 'line', borderColor: '#f59e0b', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 }
+        { label: '入金金額', data: monthly.map(function(m) { return m.paid; }), type: 'line', borderColor: '#f59e0b', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 },
+        { label: '粗利', data: monthly.map(function(m) { return m.profit; }), type: 'line', borderColor: '#059669', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3, borderDash: [5, 3] }
       ]
     },
     options: {
@@ -593,6 +670,7 @@ function renderProjects(projects) {
       '<td><span class="badge badge-' + p.status + '">' + p.status + '</span></td>' +
       '<td>' + yomiHtml + '</td>' +
       '<td>¥' + numFmt(p.total) + '</td>' +
+      '<td style="font-size:12px">' + (p.profitRate !== undefined ? '<span style="color:' + (p.profitRate >= 0.3 ? '#059669' : p.profitRate > 0 ? '#d97706' : '#dc2626') + ';font-weight:600">' + Math.round(p.profitRate * 100) + '%</span>' : '—') + '</td>' +
       '<td><button class="btn btn-primary btn-sm" onclick="openPDFMenu(\'' + p.projectId + '\')">帳票</button></td>' +
       '</tr>';
   });
@@ -640,6 +718,10 @@ function showProjectDetail(projectId) {
   html += '<tr><th>入金予定日</th><td>' + (p.dueDate || '—') + '</td></tr>';
   html += '<tr><th>入金日</th><td>' + (p.paymentDate || '—') + '</td></tr>';
   html += '<tr><th>合計金額</th><td><strong>¥' + numFmt(p.total) + '</strong></td></tr>';
+  if (p.purchaseSubtotal > 0) {
+    html += '<tr><th>仕入合計</th><td>¥' + numFmt(p.purchaseTotal) + '</td></tr>';
+    html += '<tr><th>粗利</th><td><strong style="color:' + (p.profit >= 0 ? '#059669' : '#dc2626') + '">¥' + numFmt(p.profit) + '</strong> (' + Math.round(p.profitRate * 100) + '%)</td></tr>';
+  }
   html += '</table>';
 
   // ステータス選択（トグル式）
@@ -670,6 +752,16 @@ function showProjectDetail(projectId) {
   if (p.orderUrl) html += '<a href="' + p.orderUrl + '" target="_blank" class="btn btn-sm btn-success">発注書PDF</a>';
   if (p.invoiceUrl) html += '<a href="' + p.invoiceUrl + '" target="_blank" class="btn btn-sm btn-success">請求書PDF</a>';
   if (!p.estimateUrl && !p.orderUrl && !p.invoiceUrl) html += '<span style="color:#6b7280">帳票未生成</span>';
+  html += '</div></div>';
+
+  // 仕入情報
+  html += '<div class="modal-section"><strong>仕入情報:</strong>';
+  html += '<div class="form-grid" style="margin-top:8px">';
+  html += '<div class="form-group"><label>仕入先名</label><input type="text" id="purchase-supplier" value="' + (p.supplierName || '') + '"></div>';
+  html += '<div class="form-group"><label>仕入金額（税抜）</label><input type="number" id="purchase-amount" value="' + (p.purchaseSubtotal || '') + '" placeholder="0"></div>';
+  html += '<div class="form-group"><label>仕入先請求番号</label><input type="text" id="purchase-invoice-no" value="' + (p.supplierInvoiceNo || '') + '" placeholder="INV-001"></div>';
+  html += '<div class="form-group"><label>支払日</label><input type="date" id="purchase-payment-date" value="' + (p.paymentDueDate ? p.paymentDueDate.replace(/\//g, '-') : '') + '"></div>';
+  html += '<div class="form-group full"><label>仕入先請求書URL</label><input type="url" id="purchase-invoice-url" value="' + (p.supplierInvoiceUrl || '') + '" placeholder="https://drive.google.com/..."></div>';
   html += '</div></div>';
 
   // 明細
@@ -735,25 +827,45 @@ function selectYomi(r) {
 // ========== 一括保存 ==========
 function saveAll() {
   var memo = document.getElementById('memo-edit').value;
-  google.script.run
-    .withSuccessHandler(function(result) {
-      if (result.success) {
-        showToast(result.message, 'success');
-        closeModal();
-        loadProjects();
-        loadDashboard();
-      } else {
-        showToast('エラー: ' + result.message, 'error');
-      }
-    })
-    .withFailureHandler(function(err) {
+  var savesRemaining = 2;
+  var hasError = false;
+
+  function onSaveComplete(result) {
+    if (!result.success && !hasError) {
+      hasError = true;
+      showToast('エラー: ' + result.message, 'error');
+    }
+    savesRemaining--;
+    if (savesRemaining <= 0 && !hasError) {
+      showToast('保存完了', 'success');
+      closeModal();
+      loadProjects();
+      loadDashboard();
+    }
+  }
+  function onSaveError(err) {
+    if (!hasError) {
+      hasError = true;
       showToast('エラー: ' + err.message, 'error');
-    })
-    .updateProjectBulk(modalProjectId, {
-      status: pendingStatus,
-      yomiRank: pendingYomi,
-      memo: memo
-    });
+    }
+    savesRemaining--;
+  }
+
+  // 案件基本情報の保存
+  google.script.run.withSuccessHandler(onSaveComplete).withFailureHandler(onSaveError)
+    .updateProjectBulk(modalProjectId, { status: pendingStatus, yomiRank: pendingYomi, memo: memo });
+
+  // 仕入情報の保存
+  var supplierEl = document.getElementById('purchase-supplier');
+  var purchaseData = {
+    supplierName: supplierEl ? supplierEl.value : '',
+    purchaseSubtotal: document.getElementById('purchase-amount') ? document.getElementById('purchase-amount').value : '',
+    supplierInvoiceNo: document.getElementById('purchase-invoice-no') ? document.getElementById('purchase-invoice-no').value : '',
+    supplierPaymentDate: document.getElementById('purchase-payment-date') ? document.getElementById('purchase-payment-date').value : '',
+    supplierInvoiceUrl: document.getElementById('purchase-invoice-url') ? document.getElementById('purchase-invoice-url').value : ''
+  };
+  google.script.run.withSuccessHandler(onSaveComplete).withFailureHandler(onSaveError)
+    .updateProjectPurchase(modalProjectId, purchaseData);
 }
 
 // ========== PDF生成 ==========
@@ -957,6 +1069,179 @@ function showToast(msg, type) {
   el.textContent = msg;
   el.className = 'toast toast-' + type + ' show';
   setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+
+// ========== 顧客管理 ==========
+var allCustomers = [];
+
+function loadCustomerDatalist() {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) return;
+      var datalist = document.getElementById('customer-datalist');
+      datalist.innerHTML = '';
+      result.customers.forEach(function(c) {
+        datalist.innerHTML += '<option value="' + c.nickname + '">';
+      });
+    })
+    .getCustomersList();
+}
+
+function loadCustomers() {
+  document.getElementById('customers-loading').style.display = 'block';
+  document.getElementById('customers-content').style.display = 'none';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) {
+        document.getElementById('customers-loading').innerHTML = '<p style="color:#dc2626">エラー: ' + result.message + '</p>';
+        return;
+      }
+      allCustomers = result.customers;
+      renderCustomers(result.customers);
+      renderUnregistered(result.unregistered);
+      document.getElementById('customers-loading').style.display = 'none';
+      document.getElementById('customers-content').style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('customers-loading').innerHTML = '<p style="color:#dc2626">エラー: ' + err.message + '</p>';
+    })
+    .getCustomersList();
+}
+
+function renderCustomers(customers) {
+  var tbody = document.querySelector('#customers-table tbody');
+  tbody.innerHTML = '';
+  if (customers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:#6b7280;text-align:center">登録済み顧客はありません</td></tr>';
+    return;
+  }
+  customers.forEach(function(c) {
+    var addr = c.address1 || '';
+    if (c.address2) addr += ' ' + c.address2;
+    if (addr.length > 30) addr = addr.substring(0, 30) + '...';
+    tbody.innerHTML += '<tr>' +
+      '<td>' + c.nickname + '</td>' +
+      '<td>' + c.displayName + '</td>' +
+      '<td style="font-size:12px">' + addr + '</td>' +
+      '<td>' + c.contactName + '</td>' +
+      '<td><button class="btn btn-outline btn-sm" onclick="editCustomer(\'' + escapeHtml_(c.nickname) + '\')">編集</button></td>' +
+      '</tr>';
+  });
+}
+
+function renderUnregistered(unregistered) {
+  var section = document.getElementById('unregistered-section');
+  var list = document.getElementById('unregistered-list');
+  if (unregistered.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  var html = '';
+  unregistered.forEach(function(name) {
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #f1f5f9">' +
+      '<span style="flex:1;font-weight:500">' + name + '</span>' +
+      '<button class="btn btn-primary btn-sm" onclick="startRegisterFromUnregistered(\'' + escapeHtml_(name) + '\')">登録</button>' +
+      '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function startRegisterFromUnregistered(nickname) {
+  cancelCustomerEdit();
+  document.getElementById('cust-nickname').value = nickname;
+  document.getElementById('cust-displayname').value = nickname;
+  document.getElementById('cust-nickname').focus();
+  // フォームまでスクロール
+  document.getElementById('customer-form-title').scrollIntoView({ behavior: 'smooth' });
+}
+
+function editCustomer(nickname) {
+  var c = allCustomers.find(function(x) { return x.nickname === nickname; });
+  if (!c) return;
+
+  document.getElementById('customer-edit-mode').value = 'edit';
+  document.getElementById('customer-form-title').textContent = '顧客編集: ' + nickname;
+  document.getElementById('cust-nickname').value = c.nickname;
+  document.getElementById('cust-nickname').readOnly = true;
+  document.getElementById('cust-nickname').style.background = '#f3f4f6';
+  document.getElementById('cust-displayname').value = c.displayName;
+  document.getElementById('cust-postal').value = c.postalCode;
+  document.getElementById('cust-address1').value = c.address1;
+  document.getElementById('cust-address2').value = c.address2;
+  document.getElementById('cust-title').value = c.title;
+  document.getElementById('cust-contact').value = c.contactName;
+  document.getElementById('cust-email').value = c.email;
+  document.getElementById('cust-memo').value = c.memo;
+  document.getElementById('cust-submit-btn').textContent = '更新';
+  document.getElementById('cust-cancel-btn').style.display = 'inline-block';
+
+  document.getElementById('customer-form-title').scrollIntoView({ behavior: 'smooth' });
+}
+
+function cancelCustomerEdit() {
+  document.getElementById('customer-edit-mode').value = 'new';
+  document.getElementById('customer-form-title').textContent = '新規顧客登録';
+  document.getElementById('cust-nickname').value = '';
+  document.getElementById('cust-nickname').readOnly = false;
+  document.getElementById('cust-nickname').style.background = '';
+  document.getElementById('cust-displayname').value = '';
+  document.getElementById('cust-postal').value = '';
+  document.getElementById('cust-address1').value = '';
+  document.getElementById('cust-address2').value = '';
+  document.getElementById('cust-title').value = '';
+  document.getElementById('cust-contact').value = '';
+  document.getElementById('cust-email').value = '';
+  document.getElementById('cust-memo').value = '';
+  document.getElementById('cust-submit-btn').textContent = '登録';
+  document.getElementById('cust-cancel-btn').style.display = 'none';
+}
+
+function submitCustomer() {
+  var mode = document.getElementById('customer-edit-mode').value;
+  var nickname = document.getElementById('cust-nickname').value.trim();
+  var displayName = document.getElementById('cust-displayname').value.trim();
+
+  if (!nickname) {
+    showToast('呼称は必須です', 'error');
+    return;
+  }
+
+  var formData = {
+    nickname: nickname,
+    displayName: displayName,
+    postalCode: document.getElementById('cust-postal').value,
+    address1: document.getElementById('cust-address1').value,
+    address2: document.getElementById('cust-address2').value,
+    title: document.getElementById('cust-title').value,
+    contactName: document.getElementById('cust-contact').value,
+    email: document.getElementById('cust-email').value,
+    memo: document.getElementById('cust-memo').value
+  };
+
+  var handler = function(result) {
+    if (result.success) {
+      showToast(result.message, 'success');
+      cancelCustomerEdit();
+      loadCustomers();
+    } else {
+      showToast('エラー: ' + result.message, 'error');
+    }
+  };
+
+  var errorHandler = function(err) {
+    showToast('エラー: ' + err.message, 'error');
+  };
+
+  if (mode === 'edit') {
+    google.script.run.withSuccessHandler(handler).withFailureHandler(errorHandler).updateCustomer(formData);
+  } else {
+    google.script.run.withSuccessHandler(handler).withFailureHandler(errorHandler).addNewCustomer(formData);
+  }
+}
+
+function escapeHtml_(str) {
+  return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 </script>
 </body>

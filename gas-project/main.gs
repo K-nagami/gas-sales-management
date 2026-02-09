@@ -10,10 +10,13 @@
  *
  * プレースホルダー対応表（templates.gs と一致させること）:
  *   {{自社名}}, {{自社住所}}, {{自社TEL}}, {{自社メール}}, {{適格番号}}
- *   {{顧客名}}, {{案件名}}, {{案件ID}}
+ *   {{自社担当者名}}, {{自社URL}}, {{社印画像}}
+ *   {{顧客名}}, {{顧客郵便番号}}, {{顧客住所1}}, {{顧客住所2}}, {{顧客役職}}, {{顧客担当者名}}
+ *   {{案件名}}, {{案件ID}}
  *   {{見積日}}, {{発注日}}, {{請求日}}, {{入金予定日}}
  *   {{明細テーブル}}
  *   {{小計}}, {{消費税}}, {{合計金額}}
+ *   {{10%対象}}, {{10%消費税}}
  *   {{振込先情報}}, {{支払条件}}, {{発注書注意書き}}
  */
 
@@ -61,13 +64,16 @@ function generateEstimatePDF() {
 
     var replacements = buildReplacements_(rowData, settings, items);
     var fileName = '見積書_' + rowData.projectId + '_' + rowData.customerName + '.pdf';
+    var transactionDate = replacements['{{見積日}}'];
 
     var pdfUrl = fillTemplateAndConvertToPDF(
       settings.estimateTemplateId,
       replacements,
       items,
       fileName,
-      settings.folderId
+      settings.folderId,
+      transactionDate,
+      settings.sealImageId
     );
 
     // M列（13列目）に見積書URLを記入
@@ -103,13 +109,16 @@ function generateOrderFormPDF() {
     replacements['{{発注書注意書き}}'] = settings.orderNote;
 
     var fileName = '発注書_' + rowData.projectId + '_' + rowData.customerName + '.pdf';
+    var transactionDate = replacements['{{発注日}}'];
 
     var pdfUrl = fillTemplateAndConvertToPDF(
       settings.orderTemplateId,
       replacements,
       items,
       fileName,
-      settings.folderId
+      settings.folderId,
+      transactionDate,
+      settings.sealImageId
     );
 
     // N列（14列目）に発注書URLを記入
@@ -149,13 +158,16 @@ function generateInvoicePDF() {
     replacements['{{入金予定日}}'] = rowData.values[6] ? formatDateValue_(rowData.values[6]) : '（未設定）';
 
     var fileName = '請求書_' + rowData.projectId + '_' + rowData.customerName + '.pdf';
+    var transactionDate = replacements['{{請求日}}'];
 
     var pdfUrl = fillTemplateAndConvertToPDF(
       settings.invoiceTemplateId,
       replacements,
       items,
       fileName,
-      settings.folderId
+      settings.folderId,
+      transactionDate,
+      settings.sealImageId
     );
 
     // O列（15列目）に請求書URLを記入
@@ -179,9 +191,11 @@ function generateInvoicePDF() {
  * @param {Array} items 明細行データ [{name, unitPrice, quantity, subtotal}]
  * @param {string} fileName 生成するPDFのファイル名
  * @param {string} folderId 保存先GoogleドライブフォルダID
+ * @param {string} transactionDate 取引日（YYYY/MM/DD形式）
+ * @param {string} sealImageId 社印画像のファイルID（省略可）
  * @returns {string} 生成されたPDFのURL
  */
-function fillTemplateAndConvertToPDF(templateId, replacements, items, fileName, folderId) {
+function fillTemplateAndConvertToPDF(templateId, replacements, items, fileName, folderId, transactionDate, sealImageId) {
   var tempDocId = null;
 
   try {
@@ -194,14 +208,18 @@ function fillTemplateAndConvertToPDF(templateId, replacements, items, fileName, 
     var doc = DocumentApp.openById(tempDocId);
     var body = doc.getBody();
 
-    // プレースホルダー置換（明細テーブル以外）
+    // プレースホルダー置換（明細テーブル・社印画像以外）
     for (var placeholder in replacements) {
       if (placeholder === '{{明細テーブル}}') continue;
+      if (placeholder === '{{社印画像}}') continue;
       body.replaceText(escapeRegExp_(placeholder), replacements[placeholder] || '');
     }
 
-    // 明細テーブルの挿入
-    insertItemsTable_(body, items);
+    // 社印画像挿入（プレースホルダー置換後、テーブル挿入前）
+    insertSealImage_(body, sealImageId || '');
+
+    // 明細テーブルの挿入（5列: 取引日・摘要・数量・単価・明細金額）
+    insertItemsTable_(body, items, transactionDate || '');
 
     doc.saveAndClose();
 
@@ -259,14 +277,15 @@ function getOrCreateSubFolder_(parentFolder, subFolderName) {
  * {{明細テーブル}} プレースホルダーを検索し、その位置に明細テーブルを挿入する
  * @param {DocumentApp.Body} body
  * @param {Array} items
+ * @param {string} transactionDate 取引日（YYYY/MM/DD形式）
  * @private
  */
-function insertItemsTable_(body, items) {
+function insertItemsTable_(body, items, transactionDate) {
   // プレースホルダーの段落を検索
   var searchResult = body.findText('\\{\\{明細テーブル\\}\\}');
   if (!searchResult) {
     // プレースホルダーが見つからない場合は末尾に追加
-    appendItemsTableToBody_(body, items);
+    appendItemsTableToBody_(body, items, transactionDate);
     return;
   }
 
@@ -278,8 +297,8 @@ function insertItemsTable_(body, items) {
   // プレースホルダー段落を削除
   body.removeChild(paragraph);
 
-  // テーブルデータを構築
-  var tableData = buildTableData_(items);
+  // テーブルデータを構築（5列: 取引日・摘要・数量・単価・明細金額）
+  var tableData = buildTableDataV4_(items, transactionDate);
 
   // 指定位置にテーブルを挿入
   var table = body.insertTable(parentIndex, tableData);
@@ -302,24 +321,25 @@ function insertItemsTable_(body, items) {
 }
 
 /**
- * テーブルデータ配列を構築
+ * v4テーブルデータ配列を構築（5列: 取引日・摘要・数量・単価・明細金額）
  * @param {Array} items
+ * @param {string} transactionDate 取引日
  * @returns {Array} 2D配列
  * @private
  */
-function buildTableData_(items) {
-  var data = [['品目名', '単価', '数量', '小計']];
+function buildTableDataV4_(items, transactionDate) {
+  var data = [['取引日', '摘要', '数量', '単価', '明細金額']];
+  var txDate = transactionDate || '';
 
-  var subtotal = 0;
   for (var i = 0; i < items.length; i++) {
     var item = items[i];
     data.push([
+      txDate,
       item.name,
-      '¥' + formatNumber_(item.unitPrice),
       String(item.quantity),
+      '¥' + formatNumber_(item.unitPrice),
       '¥' + formatNumber_(item.subtotal)
     ]);
-    subtotal += item.subtotal;
   }
 
   return data;
@@ -329,8 +349,8 @@ function buildTableData_(items) {
  * Body末尾にテーブルを追加（フォールバック用）
  * @private
  */
-function appendItemsTableToBody_(body, items) {
-  var tableData = buildTableData_(items);
+function appendItemsTableToBody_(body, items, transactionDate) {
+  var tableData = buildTableDataV4_(items, transactionDate);
   body.appendTable(tableData);
 }
 
@@ -385,7 +405,7 @@ function getSettingsData() {
     var sheet = ss.getSheetByName('設定');
     if (!sheet) throw new Error('「設定」シートが見つかりません');
 
-    var vals = sheet.getRange('B1:B19').getValues();
+    var vals = sheet.getRange('B1:B22').getValues();
 
     return {
       companyName:        vals[0][0],   // B1: 社名
@@ -406,7 +426,10 @@ function getSettingsData() {
       folderId:           vals[15][0],  // B16: 帳票保存先フォルダID
       estimateTemplateId: vals[16][0],  // B17: 見積書テンプレートID
       orderTemplateId:    vals[17][0],  // B18: 発注書テンプレートID
-      invoiceTemplateId:  vals[18][0]   // B19: 請求書テンプレートID
+      invoiceTemplateId:  vals[18][0],  // B19: 請求書テンプレートID
+      companyStaff:       vals[19][0],  // B20: 自社担当者名
+      companyUrl:         vals[20][0],  // B21: 自社URL
+      sealImageId:        vals[21][0]   // B22: 社印画像ファイルID
     };
   } catch (error) {
     throw new Error('設定データ取得エラー: ' + error.message);
@@ -445,6 +468,39 @@ function getItemsForProject(projectId) {
   }
 }
 
+/**
+ * 顧客マスタから顧客名で検索し、顧客情報を返す
+ * シート未存在時や該当なしの場合は空文字を返す（グレースフルデグレード）
+ * @param {string} customerName 顧客名
+ * @returns {Object} { postalCode, address1, address2, title, contactName }
+ * @private
+ */
+function getCustomerData_(customerName) {
+  var empty = { displayName: '', postalCode: '', address1: '', address2: '', title: '', contactName: '' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('顧客マスタ');
+    if (!sheet) return empty;
+
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0] === customerName) {
+        return {
+          displayName: data[i][1] || '',  // B列: 名称（帳票記載用）
+          postalCode:  data[i][2] || '',   // C列: 郵便番号
+          address1:    data[i][3] || '',   // D列: 住所1
+          address2:    data[i][4] || '',   // E列: 住所2
+          title:       data[i][5] || '',   // F列: 役職
+          contactName: data[i][6] || ''    // G列: 担当者名
+        };
+      }
+    }
+    return empty;
+  } catch (e) {
+    return empty;
+  }
+}
+
 // ============================================================================
 // 置換データ構築
 // ============================================================================
@@ -471,6 +527,9 @@ function buildReplacements_(rowData, settings, items) {
   var tax = Math.floor(subtotal * taxRate);  // 切り捨て
   var total = subtotal + tax;
 
+  // 顧客マスタからデータ取得
+  var customer = getCustomerData_(rowData.customerName);
+
   var r = {};
 
   // 自社情報
@@ -479,11 +538,20 @@ function buildReplacements_(rowData, settings, items) {
   r['{{自社TEL}}']  = settings.tel;
   r['{{自社メール}}'] = settings.email;
   r['{{適格番号}}'] = settings.invoiceNumber;
+  r['{{自社担当者名}}'] = settings.companyStaff || '';
+  r['{{自社URL}}']  = settings.companyUrl || '';
 
   // 案件情報
   r['{{案件ID}}']   = rowData.projectId;
-  r['{{顧客名}}']   = rowData.customerName;
+  r['{{顧客名}}']   = customer.displayName || rowData.customerName;
   r['{{案件名}}']   = vals[2] || '';
+
+  // 顧客マスタ情報
+  r['{{顧客郵便番号}}'] = customer.postalCode;
+  r['{{顧客住所1}}']   = customer.address1;
+  r['{{顧客住所2}}']   = customer.address2;
+  r['{{顧客役職}}']     = customer.title;
+  r['{{顧客担当者名}}'] = customer.contactName;
 
   // 日付（Date型で入っている場合を考慮）
   r['{{見積日}}']   = vals[3] ? formatDateValue_(vals[3]) : '';
@@ -496,12 +564,54 @@ function buildReplacements_(rowData, settings, items) {
   r['{{消費税}}']   = '¥' + formatNumber_(tax);
   r['{{合計金額}}'] = '¥' + formatNumber_(total);
 
+  // 内訳（10%対象・消費税）
+  r['{{10%対象}}']  = '¥' + formatNumber_(subtotal);
+  r['{{10%消費税}}'] = '¥' + formatNumber_(tax);
+
   // 条件・注意書き
   r['{{支払条件}}']     = settings.paymentTerms || '';
   r['{{発注書注意書き}}'] = settings.orderNote || '';
   r['{{振込先情報}}']   = ''; // 請求書生成時にのみ上書きする
 
   return r;
+}
+
+/**
+ * {{社印画像}} プレースホルダーを検索し、社印画像を挿入する
+ * ID未設定時はプレースホルダーを削除するだけ（エラーにしない）
+ * @param {DocumentApp.Body} body
+ * @param {string} sealImageId Google DriveのファイルID
+ * @private
+ */
+function insertSealImage_(body, sealImageId) {
+  var searchResult = body.findText('\\{\\{社印画像\\}\\}');
+  if (!searchResult) return;
+
+  var element = searchResult.getElement();
+  var paragraph = element.getParent();
+
+  if (!sealImageId || sealImageId === '') {
+    // ID未設定: プレースホルダーテキストを削除
+    paragraph.asText().replaceText('\\{\\{社印画像\\}\\}', '');
+    return;
+  }
+
+  try {
+    var file = DriveApp.getFileById(sealImageId);
+    var blob = file.getBlob();
+
+    // プレースホルダーテキストを削除
+    paragraph.asText().replaceText('\\{\\{社印画像\\}\\}', '');
+
+    // 画像を挿入（80×80px）
+    var img = paragraph.asParagraph().appendInlineImage(blob);
+    img.setWidth(80);
+    img.setHeight(80);
+  } catch (e) {
+    // 画像取得に失敗した場合はプレースホルダーを削除のみ
+    paragraph.asText().replaceText('\\{\\{社印画像\\}\\}', '');
+    Logger.log('社印画像挿入スキップ: ' + e.message);
+  }
 }
 
 // ============================================================================

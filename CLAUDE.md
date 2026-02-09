@@ -39,6 +39,11 @@ repo: https://github.com/K-nagami/gas-sales-management.git
 branch: main
 ```
 
+## Startup
+- セッション開始時に `TODO.md` を読み込み、未完了タスクの一覧をユーザーに提示すること
+- 作業完了時は `TODO.md` の該当タスクを `[x]` に更新すること
+
 ## References
+- `TODO.md` — 開発タスクリスト（Phase 1〜4）
 - `CHANGELOG.md` — 全バージョンの開発ログ
 - `DEPLOY_GUIDE.md` — デプロイ詳細手順

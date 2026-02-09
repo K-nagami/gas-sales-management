@@ -1,0 +1,28 @@
+{
+  "company": {
+    "name": "（後で入力）",
+    "representative": "（後で入力）",
+    "postal_code": "〒000-0000",
+    "address": "（後で入力）",
+    "tel": "000-0000-0000",
+    "email": "example@example.com",
+    "invoice_registration_number": "T0000000000000"
+  },
+  "bank": {
+    "bank_name": "（後で入力）",
+    "branch_name": "（後で入力）",
+    "account_type": "普通",
+    "account_number": "0000000",
+    "account_holder": "（後で入力）"
+  },
+  "tax": {
+    "consumption_tax_rate": 0.10
+  },
+  "templates": {
+    "order_form_note": "※本発注書にご署名・ご捺印の上、PDF又は原本をご返送ください。",
+    "payment_terms": "月末締め翌月末払い"
+  },
+  "drive": {
+    "output_folder_id": "（GoogleドライブのフォルダIDを後で入力）"
+  }
+}
